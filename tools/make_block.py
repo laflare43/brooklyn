@@ -51,6 +51,10 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     world = World(a.osm, LAT0, LON0, a.stud_m)
+    dropped = world.drop_outside(6.0)
+    for b in dropped:
+        print("  dropped (outside the mapped area): %s %s %sm" % (
+            b["id"], b["tags"].get("building"), b["tags"].get("height")))
     only = set(x for x in a.only.split(",") if x)
     want = lambda k: not only or k in only          # noqa: E731
     rng = random.Random(a.seed)

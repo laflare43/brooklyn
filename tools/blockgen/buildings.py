@@ -27,7 +27,7 @@ from .streets import seg_part
 
 
 class Edge:
-    __slots__ = ("p", "q", "L", "d", "n", "mid", "shared", "front", "road", "idx", "hole")
+    __slots__ = ("p", "q", "L", "d", "n", "mid", "shared", "front", "road", "idx", "hole", "door_u")
 
 
 class Bldg:
@@ -118,6 +118,7 @@ class Builder:
             e.shared = self.is_shared(e, b)
             e.road = None
             e.front = False
+            e.door_u = None
             if not e.shared and not hole:
                 dist, road, cp = self.ctx.nearest_road(e.mid, kinds=("residential", "tertiary"))
                 if road is not None and dist < road["half"] + 18 * S:
@@ -202,12 +203,15 @@ class Builder:
             edges.extend(self.edges_of(ring, hole, b))
         b.edges = edges
 
+        chosen = self.choose_entrances(b, edges) if kind == "project" else []
+        for e in chosen:
+            e.door_u = e.L / 2
         self.shell(scene, shell, b, edges)
         self.roof(scene, roof, b, edges, rng)
         for e in edges:
             self.facade(scene, wins, det, b, e, rng)
-        if kind == "project":
-            self.project_entrances(scene, det, b, edges, rng)
+        if chosen:
+            self.build_entrances(scene, det, b, chosen, rng)
         return model
 
     def label(self, b):
@@ -222,15 +226,19 @@ class Builder:
         t = style.WALL_T * S
         top = b.H - 0.04 * S
         for e in edges:
+            j = (hash01("%s:%d" % (b.id, e.idx)) - 0.5) * 0.10        # +-5 % tone variation
+            tone = tuple(max(0, min(255, int(c * (1 + j)))) for c in b.brick)
             p = seg_part(scene, "Wall", e.p, e.q, t, top, top, off=-t / 2, ext=0.0,
-                         color=b.brick, material="Brick", variant=b.variant)
+                         color=tone, material="Brick", variant=b.variant)
             if p:
                 f.add(p)
-            if e.L > 1.2 * S and not e.shared:
+            storefront = b.kind == "commercial" and e.front and e.L >= 4.0 * S
+            if e.L > 1.2 * S and not e.shared and not storefront:
                 wt = 0.14 * S
                 p = seg_part(scene, "WaterTable", e.p, e.q, wt, 0.75 * S, 0.75 * S,
                              off=wt / 2, ext=-0.02 * S, color=style.CONC_DARK,
-                             material="Concrete", variant="FB_ConcreteTrim", shadow=False)
+                             material="Concrete", variant="FB_ConcreteTrim", shadow=False,
+                             collide=False, query=False)
                 if p:
                     f.add(p)
             pt = 0.34 * S
@@ -242,7 +250,8 @@ class Builder:
             cap = seg_part(scene, "Coping", e.p, e.q, pt + 0.1 * S,
                            b.H + style.PARAPET_H * S + 0.06 * S, 0.06 * S,
                            off=-pt / 2 + 0.03 * S, ext=0.0, color=style.CONC_TRIM,
-                           material="Concrete", variant="FB_ConcreteTrim", shadow=False)
+                           material="Concrete", variant="FB_ConcreteTrim", shadow=False,
+                           collide=False, query=False)
             if cap:
                 f.add(cap)
 
@@ -253,12 +262,12 @@ class Builder:
         rings = [b.outer] + b.holes
         rects = geo.decompose(rings, ang, tol=0.2 * S)
         d = (math.cos(ang), math.sin(ang))
-        thick = 0.3 * S
+        thick = 0.04 * S
         for r in rects:
             (px, pz), (du, dv) = geo.rect_world(r, ang)
             if du < 0.05 or dv < 0.05:
                 continue
-            f.add(scene.part("RoofSlab", (du + 0.02, thick, dv + 0.02),
+            f.add(scene.part("RoofSlab", (du + 0.01, thick, dv + 0.01),
                              (px, b.H - thick / 2, pz), basis(*d), color=style.ROOF,
                              material="Concrete", variant="FB_RoofGravel"))
         # roof furniture, kept well inside the footprint
@@ -330,6 +339,8 @@ class Builder:
         """Place a part in the edge's local frame: u along, v outward."""
         cx = e.p[0] + e.d[0] * u + e.n[0] * v
         cz = e.p[1] + e.d[1] * u + e.n[1] * v
+        kw.setdefault("collide", False)      # decoration: no physics cost
+        kw.setdefault("query", False)
         return scene.part(name, size, (cx, y, cz), basis(*e.d), **kw)
 
     def facade(self, scene, wins, det, b, e, rng):
@@ -365,27 +376,51 @@ class Builder:
         for fl in range(first, b.floors):
             base = b.levels[fl]
             fh = (b.levels[fl + 1] - base) if fl + 1 < b.floors else (b.H - base)
-            wy = base + min(spec["sill"] * S, fh * 0.34) + h / 2
-            if wy + h / 2 > base + fh - 0.35 * S:
+            # fit the window to the storey instead of dropping short storeys
+            sill_eff = min(spec["sill"] * S, fh * 0.30)
+            corn = kind in ("row", "commercial") and e.front and fl == b.floors - 1
+            h_eff = min(h, fh - sill_eff - (0.50 if corn else 0.30) * S)
+            if h_eff < 0.9 * S:
                 continue
+            wy = base + sill_eff + h_eff / 2
             for k in range(nb):
                 u = sp * (k + 0.5)
-                if door_u is not None and abs(u - door_u) < 1.1 * S and fl == 0:
+                # leave room for stoop doors (ground + second floor) and lobby doors (all floors)
+                if door_u is not None and kind == "row" and abs(u - door_u) < 1.7 * S and fl <= 1:
                     continue
-                if door_u is not None and abs(u - door_u) < 0.9 * S and fl == 1 and kind == "row":
-                    pass
-                self.window(scene, wins, b, e, u, wy, w, h, rng, bars=(bars_ground and fl == 0),
+                if e.door_u is not None and abs(u - e.door_u) < 1.9 * S:
+                    continue
+                if self.blocked_by_neighbour(b, e, u, wy - h_eff / 2 - 0.15 * S):
+                    continue
+                self.window(scene, wins, b, e, u, wy, w, h_eff, rng,
+                            bars=(bars_ground and fl == 0),
                             lintel=(kind in ("project", "commercial", "school")))
         # cornice on street fronts of older buildings
         if kind in ("row", "commercial") and e.front:
             wd = 0.42 * S
             wins.add(seg_part(scene, "Cornice", e.p, e.q, wd, b.H - 0.05 * S, 0.34 * S,
                               off=wd / 2 - 0.02 * S, ext=0.0, color=b.trim,
-                              material="Concrete", variant="FB_ConcreteTrim", shadow=False))
+                              material="Concrete", variant="FB_ConcreteTrim", shadow=False,
+                              collide=False, query=False))
         # fire escapes: older 3+ storey buildings, on the street side
         if kind in ("row", "commercial") and e.front and b.floors >= 3 and e.L >= 4.5 * S:
             if kind == "commercial" or b.floors >= 4:
                 self.fire_escape(scene, det, b, e, nb, sp, rng)
+
+    def blocked_by_neighbour(self, b, e, u, y_bottom):
+        """True if this window position sits against a taller neighbour's wall."""
+        S = self.S
+        px = e.p[0] + e.d[0] * u + e.n[0] * 0.18 * S
+        pz = e.p[1] + e.d[1] * u + e.n[1] * 0.18 * S
+        for o in self.bs:
+            if o is b:
+                continue
+            x0, z0, x1, z1 = o.bbox
+            if not (x0 - 1 < px < x1 + 1 and z0 - 1 < pz < z1 + 1):
+                continue
+            if geo.point_in_poly((px, pz), o.outer):
+                return y_bottom < (o.Hm + style.PARAPET_H) * S
+        return False
 
     def window(self, scene, f, b, e, u, y, w, h, rng, bars=False, lintel=False):
         S = self.S
@@ -430,10 +465,17 @@ class Builder:
         u = e.L * (0.27 if hash01(b.id + "s") < 0.5 else 0.73)
         rise, run = 0.18 * S, 0.30 * S
         nrise = 6 if b.Hm > 7 else 5
-        top = rise * nrise
         land = 1.1 * S
+        # never run the stoop out past the walkway: keep ~1.2 m clear before the curb
+        door_pt = (e.p[0] + e.d[0] * u, e.p[1] + e.d[1] * u)
+        dd, road, _cp = self.ctx.nearest_road(door_pt, kinds=("residential", "tertiary"))
+        room = ((dd - road["half"]) - 1.2 * S) if road is not None else 99 * S
+        while nrise > 2 and land + (nrise - 1) * run > room:
+            nrise -= 1
+        top = rise * nrise
         wdt = 1.5 * S
-        conc = dict(color=(150, 146, 138), material="Concrete", variant="FB_ConcreteTrim")
+        conc = dict(color=(150, 146, 138), material="Concrete", variant="FB_ConcreteTrim",
+                    collide=True, query=True)
         # landing against the door, then treads running outward and down
         f.add(self.fpart(scene, e, "StoopLanding", (wdt, top, land), u, top / 2, land / 2, **conc))
         for j in range(1, nrise):
@@ -443,7 +485,7 @@ class Builder:
             f.add(self.fpart(scene, e, "StoopCheek", (0.18 * S, top + 0.25 * S, land),
                              u + sgn * (wdt / 2 + 0.09 * S), (top + 0.25 * S) / 2, land / 2,
                              color=(140, 136, 128), material="Concrete",
-                             variant="FB_ConcreteTrim", shadow=False))
+                             variant="FB_ConcreteTrim", shadow=False, collide=True))
             f.add(self.fpart(scene, e, "StoopRailPost", (0.05 * S, 0.9 * S, 0.05 * S),
                              u + sgn * (wdt / 2 + 0.09 * S), top + 0.25 * S + 0.45 * S,
                              land - 0.1 * S, color=(30, 32, 34), material="Metal",
@@ -552,7 +594,7 @@ class Builder:
                                  u1 - 0.55 * S, y - run / 2, 0.62 * S, color=col,
                                  material="DiamondPlate", transparency=0.55, shadow=False))
 
-    def project_entrances(self, scene, f, b, edges, rng):
+    def choose_entrances(self, b, edges):
         S = self.S
         cands = []
         n = len(edges)
@@ -576,6 +618,10 @@ class Builder:
                 chosen.append(e)
             if len(chosen) >= 5:
                 break
+        return chosen
+
+    def build_entrances(self, scene, f, b, chosen, rng):
+        S = self.S
         for e in chosen:
             u = e.L / 2
             dh, dw = 2.25 * S, 1.7 * S
@@ -583,12 +629,12 @@ class Builder:
                              u, (dh + 0.25 * S) / 2, 0.1 * S, color=(80, 80, 84),
                              material="Metal", shadow=False))
             for sgn in (-1, 1):
-                f.add(self.fpart(scene, e, "EntranceDoor", (dw / 2 - 0.03 * S, dh - 0.1 * S, 0.06 * S),
-                                 u + sgn * dw / 4, dh / 2, 0.17 * S, color=(46, 62, 74),
+                f.add(self.fpart(scene, e, "EntranceDoor", (dw / 2 - 0.03 * S, dh - 0.1 * S, 0.08 * S),
+                                 u + sgn * dw / 4, dh / 2, 0.19 * S, color=(46, 62, 74),
                                  material="Glass", transparency=0.1, shadow=False))
             f.add(self.fpart(scene, e, "EntranceCanopy", (dw + 1.2 * S, 0.14 * S, 1.2 * S),
                              u, dh + 0.55 * S, 0.62 * S, color=(150, 146, 138),
-                             material="Concrete", variant="FB_ConcreteTrim"))
+                             material="Concrete", variant="FB_ConcreteTrim", collide=True))
             f.add(self.fpart(scene, e, "EntrancePad", (dw + 1.6 * S, 0.1 * S, 1.8 * S),
                              u, 0.05 * S, 0.9 * S, color=style.SIDEWALK,
                              material="Concrete", variant="FB_SidewalkConcrete",

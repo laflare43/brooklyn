@@ -140,9 +140,12 @@ def build_ground(world, scene):
     for b in world.buildings:
         bx0, bz0, bx1, bz1 = geo.bbox(b["outer"])
         x0, z0, x1, z1 = min(x0, bx0 - 6), min(z0, bz0 - 6), max(x1, bx1 + 6), max(z1, bz1 + 6)
+    for a in world.areas:
+        ax0, az0, ax1, az1 = geo.bbox(a["ring"])
+        x0, z0, x1, z1 = min(x0, ax0 - 6), min(z0, az0 - 6), max(x1, ax1 + 6), max(z1, az1 + 6)
     f = scene.folder("Ground")
     f.add(scene.part("BaseGround", (x1 - x0, 6, z1 - z0),
-                     ((x0 + x1) / 2, -3.0, (z0 + z1) / 2),
+                     ((x0 + x1) / 2, -2.98, (z0 + z1) / 2),
                      color=style.LOT, material="Concrete", variant="FB_SidewalkConcrete"))
     return f
 
@@ -221,7 +224,7 @@ def build_sidewalks(world, scene, ctx):
                                  + (best[2][1] - best[1][1]) * dz) / rl) < 0.97:
                 continue
             side = 1 if ((cp[0] - mid[0]) * (-dz) + (cp[1] - mid[1]) * dx) > 0 else -1
-            off = side * (sw_w / 2 - curb_w / 2)
+            off = side * (sw_w / 2 - curb_w / 2 + 0.05)
             p = seg_part(scene, "Curb", a, b, curb_w, top + 0.03, top + 0.03, off=off,
                          ext=0.04, color=style.CURB, material="Granite",
                          variant="FB_GraniteCurb")
@@ -265,8 +268,23 @@ def build_crossings(world, scene, ctx):
                 continue
             _, road, _ = ctx.nearest_road(geo.lerp(p0, p1, 0.5),
                                           kinds=("residential", "tertiary"))
-            top = (road["top"] if road else ROAD_TOP) + 0.03
             cw = 2.6 * S                       # bar length, along the traffic direction
+            tops = []
+            for k in range(0, 9):
+                q = geo.lerp(p0, p1, k / 8)
+                for sgn in (-1, 0, 1):
+                    qq = (q[0] + (-dz) * sgn * cw / 2, q[1] + dx * sgn * cw / 2)
+                    for rr in ctx.roads:
+                        if rr["kind"] == "service":
+                            continue
+                        dd = min(geo.dist_pt_seg(qq, ra, rb)[0] for run_ in rr["runs"]
+                                 for ra, rb in zip(run_, run_[1:]))
+                        if dd < rr["half"]:
+                            tops.append(rr["top"])
+            if not tops:
+                tops = [road["top"] if road else ROAD_TOP]
+            top = max(tops) + 0.03
+            pthick = top - (min(tops) - 0.01)  # solid down to the lowest road underneath
             bar = 0.55 * S
             gap = 0.55 * S
             n = max(1, int((span - bar) / (bar + gap)) + 1)
@@ -276,7 +294,7 @@ def build_crossings(world, scene, ctx):
                 for sgn in (-1, 1):
                     q0 = (p0[0] + (-dz) * sgn * cw / 2, p0[1] + dx * sgn * cw / 2)
                     q1 = (p1[0] + (-dz) * sgn * cw / 2, p1[1] + dx * sgn * cw / 2)
-                    f.add(seg_part(scene, "LadderRail", q0, q1, 0.3 * S, top, 0.04,
+                    f.add(seg_part(scene, "LadderRail", q0, q1, 0.3 * S, top, pthick,
                                    color=style.PAINT_WHITE, material="SmoothPlastic",
                                    collide=False, query=False))
                 bars = range(0, n, 2)
@@ -285,7 +303,7 @@ def build_crossings(world, scene, ctx):
             for i in bars:
                 c = start + i * (bar + gap)
                 cx, cz = p0[0] + dx * c, p0[1] + dz * c
-                f.add(scene.part("ZebraBar", (bar, 0.04, cw), (cx, top - 0.02, cz),
+                f.add(scene.part("ZebraBar", (bar, pthick, cw), (cx, top - pthick / 2, cz),
                                  basis(dx, dz), color=style.PAINT_WHITE,
                                  material="SmoothPlastic", collide=False, query=False))
     return f
@@ -358,11 +376,12 @@ def build_areas(world, scene, ctx, building_rings):
                      if geo.point_in_poly(geo.centroid(b), ring)]
             rings = [ring] + inner
             ang = geo.dominant_angle(ring)
-            for rect in geo.decompose(rings, ang, tol=0.3):
+            for rect in geo.decompose(rings, ang, tol=1.5):
                 (px, pz), (du, dv) = geo.rect_world(rect, ang)
-                if du < 0.3 or dv < 0.3 or not geo.point_in_poly((px, pz), ring):
+                if du < 0.05 or dv < 0.01 or not geo.point_in_poly((px, pz), ring):
                     continue
-                f.add(scene.part("CourtyardLawn", (du, 0.14, dv), (px, 0.07, pz),
+                dv = max(dv, 0.06)                 # overlap is coplanar + same material
+                f.add(scene.part("CourtyardLawn", (du, 0.03, dv), (px, 0.02, pz),
                                  basis(math.cos(ang), math.sin(ang)), color=style.GRASS,
                                  material="Grass"))
     return f
@@ -385,8 +404,112 @@ def along(run, spacing, offset=0.0):
     return out
 
 
+def on_sidewalk(ctx, p, margin=0.0):
+    """Is p on a street sidewalk slab (so furniture has something to stand on)?"""
+    half = style.SIDEWALK_W * ctx.S / 2 - margin
+    for run in ctx.street_walks:
+        for a, b in zip(run, run[1:]):
+            if geo.dist_pt_seg(p, a, b)[0] < half:
+                return True
+    return False
+
+
+def in_any_road(ctx, p, extra=0.0):
+    for r in ctx.roads:
+        for run in r["runs"]:
+            for a, b in zip(run, run[1:]):
+                if geo.dist_pt_seg(p, a, b)[0] < r["half"] + extra:
+                    return True
+    return False
+
+
+CAR_COLORS = [(232, 232, 230), (22, 22, 24), (152, 154, 158), (116, 22, 26), (30, 48, 94),
+              (72, 74, 80), (240, 190, 22), (190, 192, 196), (36, 70, 52), (200, 196, 186)]
+scene_S = [1.0, 0.0]      # (studs per metre, road top) used by make_car
+
+
+def make_car(scene, folder, p, d, color):
+    """A simple parked car: body, glass cabin, roof, four wheels. d = facing direction."""
+    S, top = scene_S
+    L, W = 4.5 * S, 1.8 * S
+    nx, nz = -d[1], d[0]
+    base = 0.28 * S
+
+    def at(a, b, y):
+        return (p[0] + d[0] * a + nx * b, y, p[1] + d[1] * a + nz * b)
+    rot = basis(d[0], d[1])
+    folder.add(scene.part("CarBody", (L, 0.62 * S, W), at(0, 0, top + base + 0.31 * S), rot,
+                          color=color, material="SmoothPlastic", reflectance=0.12))
+    folder.add(scene.part("CarCabin", (L * 0.5, 0.52 * S, W * 0.9),
+                          at(-L * 0.04, 0, top + base + 0.62 * S + 0.26 * S),
+                          rot, color=(26, 34, 44), material="Glass", reflectance=0.1))
+    folder.add(scene.part("CarRoof", (L * 0.46, 0.05 * S, W * 0.86),
+                          at(-L * 0.04, 0, top + base + 1.14 * S + 0.025 * S),
+                          rot, color=color, material="SmoothPlastic", reflectance=0.12))
+    wr = ((nx, 0, -d[0]), (0, 1, 0), (nz, 0, -d[1]))       # cylinder axis (local X) across the car
+    for fa in (-1, 1):
+        for sd in (-1, 1):
+            folder.add(scene.part("Wheel", (0.22 * S, 0.62 * S, 0.62 * S),
+                                  at(fa * L * 0.31, sd * (W / 2 - 0.08 * S), top + 0.31 * S), wr,
+                                  color=(18, 18, 20), material="SmoothPlastic",
+                                  shape=SHAPE_CYLINDER, collide=False))
+
+
+def build_cars(world, scene, ctx, folder):
+    S, rng = world.S, ctx.rng
+    scene_S[0] = S
+    placed = 0
+    for r in ctx.roads:
+        if r["kind"] == "service":
+            continue
+        scene_S[1] = r["top"]
+        for run in r["runs"]:
+            for p, d in along(run, 5.7 * S, offset=rng.uniform(1, 5) * S):
+                nx, nz = -d[1], d[0]
+                for side in (1, -1):
+                    if rng.random() < 0.28:
+                        continue                        # an empty space
+                    off = r["half"] - 1.25 * S
+                    c = (p[0] + nx * side * off + rng.uniform(-0.4, 0.4) * S,
+                         p[1] + nz * side * off + rng.uniform(-0.4, 0.4) * S)
+                    if not (world.box[0] < c[0] < world.box[2] and world.box[1] < c[1] < world.box[3]):
+                        continue
+                    # keep out of intersections, crosswalks and clear of hydrants / lamps
+                    bad = False
+                    for r2 in ctx.roads:
+                        if r2 is r:
+                            continue
+                        for run2 in r2["runs"]:
+                            for a, b in zip(run2, run2[1:]):
+                                if geo.dist_pt_seg(c, a, b)[0] < r2["half"] + 3.4 * S:
+                                    bad = True
+                                    break
+                            if bad:
+                                break
+                        if bad:
+                            break
+                    if bad:
+                        continue
+                    for cr in world.crossings:
+                        for a, b in zip(cr["pts"], cr["pts"][1:]):
+                            if geo.dist_pt_seg(c, a, b)[0] < 3.6 * S:
+                                bad = True
+                                break
+                        if bad:
+                            break
+                    if bad or any(math.dist(c, q) < 1.7 * S for q in ctx.furniture_pts):
+                        continue
+                    if any(geo.point_in_poly(c, bb) for bb in ctx.building_rings):
+                        continue
+                    face = d if (side == 1 or r["oneway"]) else (-d[0], -d[1])
+                    make_car(scene, folder, c, face, CAR_COLORS[rng.randrange(len(CAR_COLORS))])
+                    placed += 1
+    return placed
+
+
 def build_furniture(world, scene, ctx, trees=True):
     S, rng = world.S, ctx.rng
+    ctx.furniture_pts = []
     f = scene.folder("StreetFurniture")
     sw_h = style.SIDEWALK_H * S
     lamps = f.add(scene.folder("StreetLamps"))
@@ -412,6 +535,10 @@ def build_furniture(world, scene, ctx, trees=True):
                 if not (world.box[0] < lx < world.box[2] and world.box[1] < lz < world.box[3]):
                     side = -side
                     continue
+                if not on_sidewalk(ctx, (lx, lz), 0.3 * S) or in_any_road(ctx, (lx, lz), 0.2 * S):
+                    side = -side
+                    continue
+                ctx.furniture_pts.append((lx, lz))
                 H = 8.6 * S
                 lamps.add(scene.part("LampPole", (H, 0.28 * S, 0.28 * S),
                                      (lx, sw_h + H / 2, lz), Rz90(), color=(52, 56, 60),
@@ -441,6 +568,9 @@ def build_furniture(world, scene, ctx, trees=True):
                     continue
                 if not (world.box[0] < hx < world.box[2] and world.box[1] < hz < world.box[3]):
                     continue
+                if not on_sidewalk(ctx, (hx, hz), 0.3 * S) or in_any_road(ctx, (hx, hz), 0.2 * S):
+                    continue
+                ctx.furniture_pts.append((hx, hz))
                 hyd.add(scene.part("Hydrant", (0.8 * S, 0.34 * S, 0.34 * S),
                                    (hx, sw_h + 0.4 * S, hz), Rz90(), color=(186, 38, 30),
                                    material="Metal", shape=SHAPE_CYLINDER))
@@ -469,10 +599,17 @@ def build_furniture(world, scene, ctx, trees=True):
             if not (world.box[0] < end[0] < world.box[2] and world.box[1] < end[1] < world.box[3]):
                 continue
             # step back from the crossing end so the pole stands beside the ramp
-            px = end[0] - dx * face * 0.0 + (-dz) * 1.3 * S
-            pz = end[1] - dz * face * 0.0 + dx * 1.3 * S
-            if any(geo.point_in_poly((px, pz), bb) for bb in ctx.building_rings):
+            spot = None
+            for lat in (1.3, 0.65, 0.0, -0.65, -1.3):
+                qx, qz = end[0] + (-dz) * lat * S, end[1] + dx * lat * S
+                if (on_sidewalk(ctx, (qx, qz), 0.25 * S) and not in_any_road(ctx, (qx, qz), 0.1 * S)
+                        and not any(geo.point_in_poly((qx, qz), bb) for bb in ctx.building_rings)):
+                    spot = (qx, qz)
+                    break
+            if spot is None:
                 continue
+            px, pz = spot
+            ctx.furniture_pts.append(spot)
             H = 3.3 * S
             sig.add(scene.part("SignalPole", (H, 0.18 * S, 0.18 * S),
                                (px, sw_h + H / 2, pz), Rz90(), color=(54, 58, 62),
@@ -507,6 +644,10 @@ def build_furniture(world, scene, ctx, trees=True):
                     continue
                 if not (world.box[0] < tx < world.box[2] and world.box[1] < tz < world.box[3]):
                     continue
+                if not on_sidewalk(ctx, (tx, tz), 0.1 * S) or in_any_road(ctx, (tx, tz), 0.2 * S):
+                    continue
+                if any(math.dist((tx, tz), q) < 2.2 * S for q in ctx.furniture_pts):
+                    continue
                 th = rng.uniform(3.0, 4.2) * S
                 tf.add(scene.part("TreePit", (1.3 * S, 0.04, 2.2 * S),
                                   (tx, sw_h + 0.02, tz), basis(d[0], d[1]),
@@ -524,4 +665,7 @@ def build_furniture(world, scene, ctx, trees=True):
                                       (tx + ox * rad, sw_h + th + rad * 0.7 + oy * rad,
                                        tz + oz * rad), color=col, material="LeafyGrass",
                                       shape=SHAPE_BALL, collide=False))
+    cars = f.add(scene.folder("ParkedCars"))
+    n = build_cars(world, scene, ctx, cars)
+    print("parked cars:", n)
     return f

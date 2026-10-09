@@ -127,6 +127,21 @@ class World:
             if tags.get("highway") == "traffic_signals":
                 self.signal_nodes.append(self.to_xz(*self.nodes[nid]))
 
+    def drop_outside(self, margin_m=6.0):
+        """Drop buildings whose centre lies outside the mapped box (+ margin).
+        They have no streets or sidewalks around them in this export, so they
+        would stand alone on bare ground (e.g. J.H.S. 292, 99 % outside)."""
+        x0, z0, x1, z1 = self.clip_box(margin_m)
+        keep, dropped = [], []
+        for b in self.buildings:
+            cx, cz = geo.centroid(b["outer"])
+            (keep if (x0 <= cx <= x1 and z0 <= cz <= z1) else dropped).append(b)
+        self.buildings = keep
+        # open areas (schoolyard, parks...) follow the same rule
+        self.areas = [a for a in self.areas
+                      if x0 <= geo.centroid(a["ring"])[0] <= x1 and z0 <= geo.centroid(a["ring"])[1] <= z1]
+        return dropped
+
     def clip_box(self, margin_m=0.0):
         m = margin_m * self.S
         x0, z0, x1, z1 = self.box

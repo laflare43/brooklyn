@@ -13,12 +13,13 @@ street layout and building heights come straight from that map data.
 
 | File | What it is | Parts |
 |---|---|---|
-| `Block_Streets.rbxmx` | ground slab, roads, curbs, sidewalks, paths, crosswalks, markings, lawns, pools, lamps, hydrants, signals, trees | ~1.3k |
-| `Block_Project_FiorentinoPlaza.rbxmx` | the 9 housing-complex buildings (red brick, stepped bays, entrances, bulkheads) | ~8k |
-| `Block_Buildings_West.rbxmx` | surrounding buildings, west half (rowhouses, Pitkin Ave storefronts, school) | ~5.5k |
-| `Block_Buildings_East.rbxmx` | surrounding buildings, east half | ~4.3k |
+| `Block_Streets.rbxmx` | ground slab, roads, curbs, sidewalks, paths, crosswalks, markings, lawns, pools, lamps, hydrants, signals, trees, ~190 parked cars | ~2.9k |
+| `Block_Project_FiorentinoPlaza.rbxmx` | the 9 housing-complex buildings (red brick, stepped bays, entrances, bulkheads) | ~7.2k |
+| `Block_Buildings_West.rbxmx` | surrounding buildings, west half (rowhouses, Pitkin Ave storefronts) | ~7.5k |
+| `Block_Buildings_East.rbxmx` | surrounding buildings, east half | ~6.8k |
 | `MaterialVariants.rbxmx` | the 8 MaterialVariants (no textures yet) | – |
 | `MaterialVariants_Setup.luau` | command-bar script that builds the variants with your uploaded texture ids | – |
+| `Studio_Setup.luau` | command-bar script: removes the Baseplate, sets daylight lighting and StreamingEnabled | – |
 
 All files use absolute coordinates around one origin (the map centre, lat 40.672833,
 lon -73.891728), so they line up when inserted together.
@@ -31,14 +32,16 @@ lon -73.891728), so they line up when inserted together.
 
 ## Import (about 5 minutes)
 
-1. Open your place in Studio.
+1. Open your place in Studio and paste `Studio_Setup.luau` into the command bar (View > Command Bar) and
+   press Enter. It deletes the default **Baseplate** (the block brings its own ground), sets up daylight
+   (Future lighting, atmosphere, soft shadows) and turns on StreamingEnabled. Also move or delete the
+   default SpawnLocation: it sits at the map centre, which is covered by a road or building.
 2. In the Explorer, right-click **Workspace → Insert from File…** and pick the four
    `Block_*.rbxmx` files, one at a time. They drop in at the right positions.
 3. Right-click **MaterialService → Insert from File…** and pick `MaterialVariants.rbxmx`.
    (Or paste `MaterialVariants_Setup.luau` into the command bar and press Enter.)
-4. Recommended: set **Workspace → StreamingEnabled = true**, so Studio and players only
-   load the nearby part of the ~19k parts.
-5. Optional: set `Lighting.ClockTime` to about 15 for daylight.
+4. Total is about 24k parts. `Studio_Setup.luau` already enables StreamingEnabled, so Studio and players
+   only load what is nearby.
 
 ## Making the MaterialVariants look right (textures)
 
@@ -65,7 +68,7 @@ the normal maps with `--textures --flip-green`.
 | street centrelines, widths (measured from the mapped sidewalks), one-way flags | store signs (colour bands, **no text**), roll gates, awnings |
 | sidewalks, crosswalks (zebra/ladder), traffic-signal crossings | fire escapes on 3+ storey older buildings |
 | parks, garden, schoolyard, three pools, the Fiorentino lawn | street trees, lamps, hydrants, manholes (procedural) |
-| the J.H.S. 292 building footprint | brick colours, roof equipment |
+| | brick colours, roof equipment |
 
 Buildings are classified automatically: **project** (inside the Fiorentino Plaza outline, or a
 large slab right beside it), **commercial** (Pitkin Ave frontage), **row** (rowhouses),
@@ -81,3 +84,12 @@ python3 tools/make_block.py --textures                                        # 
 python3 tools/make_block.py --stud-m 0.28                                     # different scale
 python3 tools/validate_rbxmx.py models/block/*.rbxmx                          # structural checks
 ```
+
+## Known limits
+
+* Four buildings that sit outside the mapped area (including the J.H.S. 292 school, 99 % outside the
+  export) are left out: this export has no streets or sidewalks around them. Export a larger area from
+  openstreetmap.org to include them.
+* Nothing is modelled inside the buildings. Walls are hollow shells; windows are dark glass.
+* Facade layouts are generic. Photos of the real buildings would let me match window styles, brick
+  tone, entrances and fences exactly.
