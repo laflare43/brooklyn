@@ -1,0 +1,19 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+  <Meta name="ExplicitAutoJoints">true</Meta>
+  <Item class="MaterialVariant" referent="RBX1"><Properties><string name="Name">FB_BrickProject</string><token name="BaseMaterial">848</token><Content name="ColorMap"><null></null></Content><Content name="NormalMap"><null></null></Content><Content name="RoughnessMap"><null></null></Content><Content name="MetalnessMap"><null></null></Content><float name="StudsPerTile">4</float><token name="MaterialPattern">0</token></Properties>
+  </Item>
+  <Item class="MaterialVariant" referent="RBX2"><Properties><string name="Name">FB_BrickRow</string><token name="BaseMaterial">848</token><Content name="ColorMap"><null></null></Content><Content name="NormalMap"><null></null></Content><Content name="RoughnessMap"><null></null></Content><Content name="MetalnessMap"><null></null></Content><float name="StudsPerTile">4</float><token name="MaterialPattern">0</token></Properties>
+  </Item>
+  <Item class="MaterialVariant" referent="RBX3"><Properties><string name="Name">FB_SidewalkConcrete</string><token name="BaseMaterial">816</token><Content name="ColorMap"><null></null></Content><Content name="NormalMap"><null></null></Content><Content name="RoughnessMap"><null></null></Content><Content name="MetalnessMap"><null></null></Content><float name="StudsPerTile">5</float><token name="MaterialPattern">0</token></Properties>
+  </Item>
+  <Item class="MaterialVariant" referent="RBX4"><Properties><string name="Name">FB_ConcreteTrim</string><token name="BaseMaterial">816</token><Content name="ColorMap"><null></null></Content><Content name="NormalMap"><null></null></Content><Content name="RoughnessMap"><null></null></Content><Content name="MetalnessMap"><null></null></Content><float name="StudsPerTile">5</float><token name="MaterialPattern">0</token></Properties>
+  </Item>
+  <Item class="MaterialVariant" referent="RBX5"><Properties><string name="Name">FB_AsphaltRoad</string><token name="BaseMaterial">1376</token><Content name="ColorMap"><null></null></Content><Content name="NormalMap"><null></null></Content><Content name="RoughnessMap"><null></null></Content><Content name="MetalnessMap"><null></null></Content><float name="StudsPerTile">13.3333</float><token name="MaterialPattern">0</token></Properties>
+  </Item>
+  <Item class="MaterialVariant" referent="RBX6"><Properties><string name="Name">FB_GraniteCurb</string><token name="BaseMaterial">832</token><Content name="ColorMap"><null></null></Content><Content name="NormalMap"><null></null></Content><Content name="RoughnessMap"><null></null></Content><Content name="MetalnessMap"><null></null></Content><float name="StudsPerTile">5</float><token name="MaterialPattern">0</token></Properties>
+  </Item>
+  <Item class="MaterialVariant" referent="RBX7"><Properties><string name="Name">FB_RoofGravel</string><token name="BaseMaterial">816</token><Content name="ColorMap"><null></null></Content><Content name="NormalMap"><null></null></Content><Content name="RoughnessMap"><null></null></Content><Content name="MetalnessMap"><null></null></Content><float name="StudsPerTile">6.6667</float><token name="MaterialPattern">0</token></Properties>
+  </Item>
+  <Item class="MaterialVariant" referent="RBX8"><Properties><string name="Name">FB_RollGate</string><token name="BaseMaterial">1088</token><Content name="ColorMap"><null></null></Content><Content name="NormalMap"><null></null></Content><Content name="RoughnessMap"><null></null></Content><Content name="MetalnessMap"><null></null></Content><float name="StudsPerTile">2</float><token name="MaterialPattern">0</token></Properties>
+  </Item>
+</roblox>
